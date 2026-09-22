@@ -517,6 +517,106 @@ def generate_new_dummy_ip_address():
     return result
 
 
+def analyze_import_prerequisites(data_dict):
+    """Scan data_dict for objects that require pre-existing configuration on the destination Management.
+
+    Returns a dict structured by requirement type:
+    {
+        "ldap_account_units": {
+            "<source_name>": {
+                "groups": ["group1", "group2", ...],
+                "users": ["user1", ...],
+                "used_in_roles": ["role1", ...]
+            }
+        }
+    }
+    """
+    prereqs = {"ldap_account_units": {}}
+
+    internal_sources = {"internal user groups", "internal_users", "guests", "all identified", "any"}
+
+    access_roles = data_dict.get("access-role", [])
+    for role in access_roles:
+        role_name = role.get("name", "unnamed_role")
+        i = 0
+        while True:
+            source_key = "users." + str(i) + ".source"
+            if source_key not in role:
+                break
+            source = role.get(source_key, "").strip()
+            if source and source.lower() not in internal_sources:
+                if source not in prereqs["ldap_account_units"]:
+                    prereqs["ldap_account_units"][source] = {
+                        "groups": [],
+                        "users": [],
+                        "used_in_roles": []
+                    }
+                au_entry = prereqs["ldap_account_units"][source]
+                if role_name not in au_entry["used_in_roles"]:
+                    au_entry["used_in_roles"].append(role_name)
+
+                # Identify if this is a group or individual user
+                display_name = role.get("users." + str(i) + ".display-name", "")
+                name = role.get("users." + str(i) + ".name", "")
+                dn = role.get("users." + str(i) + ".dn", "")
+                identifier = display_name if display_name else name
+
+                if identifier:
+                    # Convention: names starting with ad_group_ or DN containing OU with groups
+                    if name.startswith("ad_group_") or "OU=Groups" in dn or "OU=Security" in dn:
+                        if identifier not in au_entry["groups"]:
+                            au_entry["groups"].append(identifier)
+                    else:
+                        if identifier not in au_entry["users"]:
+                            au_entry["users"].append(identifier)
+            i += 1
+
+    return prereqs
+
+
+def generate_prerequisites_report(prereqs, out_file=None):
+    """Format and print / write the import prerequisites report."""
+    lines = []
+    has_prereqs = bool(prereqs.get("ldap_account_units"))
+
+    if not has_prereqs:
+        return ""
+
+    lines.append("")
+    lines.append("=" * 70)
+    lines.append("  IMPORT PREREQUISITES REPORT")
+    lines.append("=" * 70)
+    lines.append("The following external dependencies were detected in the exported package.")
+    lines.append("These objects MUST exist on the destination Management Server BEFORE importing.")
+    lines.append("")
+
+    if prereqs.get("ldap_account_units"):
+        lines.append("--- LDAP Account Units Required ---")
+        for au_name, info in prereqs["ldap_account_units"].items():
+            lines.append("  * LDAP Account Unit: [" + au_name + "]")
+            lines.append("    Used in " + str(len(info["used_in_roles"])) + " Access Role(s)")
+            if info["groups"]:
+                lines.append("    AD Groups (" + str(len(info["groups"])) + "):")
+                for g in sorted(info["groups"]):
+                    lines.append("      - " + g)
+            if info["users"]:
+                lines.append("    AD Users (" + str(len(info["users"])) + "):")
+                for u in sorted(info["users"]):
+                    lines.append("      - " + u)
+            lines.append("")
+
+    lines.append("=" * 70)
+    lines.append("")
+
+    report_text = "\n".join(lines)
+    if out_file:
+        try:
+            out_file.write(report_text)
+        except UnicodeEncodeError:
+            out_file.write(report_text.encode("utf-8"))
+    return report_text
+
+
 def generate_export_error_report():
     with open("export_error_log.elg", 'w') as exp_err_file:
         for err_msg in err_msgs:

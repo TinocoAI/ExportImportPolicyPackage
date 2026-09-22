@@ -9,7 +9,8 @@ from exporting.export_objects import merge_data
 from exporting.export_threat_rulebase import export_threat_rulebase
 from exporting.export_https_rulebase import export_https_rulebase
 from lists_and_dictionaries import singular_to_plural_dictionary
-from utils import debug_log, export_to_tar, create_tar_file, generate_export_error_report, compare_versions
+from utils import debug_log, export_to_tar, create_tar_file, generate_export_error_report, compare_versions, \
+    analyze_import_prerequisites, generate_prerequisites_report
 
 
 def export_package(client, args):
@@ -121,6 +122,24 @@ def export_package(client, args):
                   client.api_version,
                   ignore_list=["rule", "section", "threat-exception", "exception-group"])
 
+    # Analyze and save import prerequisites into the tar file
+    prereqs = analyze_import_prerequisites(data_dict)
+    if prereqs.get("ldap_account_units"):
+        import json
+        prereqs_filename = "import_prerequisites.json"
+        with open(prereqs_filename, "w") as pf:
+            json.dump(prereqs, pf, indent=2)
+        tar_file.add(prereqs_filename)
+        try:
+            os.remove(prereqs_filename)
+        except OSError:
+            pass
+
     generate_export_error_report()
 
     tar_file.close()
+
+    # Print the import prerequisites report to stdout after export completes
+    report = generate_prerequisites_report(prereqs)
+    if report:
+        print(report)

@@ -4,7 +4,46 @@ import time
 import sys
 
 from importing.import_objects import import_objects, add_tag_to_object_payload
-from utils import debug_log, generate_import_error_report, count_global_layers, compare_versions
+from utils import debug_log, generate_import_error_report, count_global_layers, compare_versions, \
+    generate_prerequisites_report
+
+
+def check_import_prerequisites_from_tar(tar_file_path):
+    """Inspect the tar package for import prerequisites, whether via a bundled
+    import_prerequisites.json or by dynamic scan of exported access-role files."""
+    import tarfile
+    import json
+    import csv
+
+    prereqs = {"ldap_account_units": {}}
+
+    try:
+        with tarfile.open(tar_file_path, "r:*") as tf:
+            # First check for the pre-generated prerequisites file
+            try:
+                member = tf.getmember("import_prerequisites.json")
+                f = tf.extractfile(member)
+                if f:
+                    return json.load(f)
+            except KeyError:
+                pass
+
+            # Fallback: dynamically scan access-role files inside the tar
+            ar_members = [m for m in tf.getmembers() if "add-access-role" in m.name and m.name.endswith(".json")]
+            for member in ar_members:
+                f = tf.extractfile(member)
+                if f:
+                    try:
+                        data = json.load(f)
+                        roles = data if isinstance(data, list) else list(data.values())[0]
+                        from utils import analyze_import_prerequisites
+                        return analyze_import_prerequisites({"access-role": roles})
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    return prereqs
 
 
 def import_package(client, args):
@@ -12,6 +51,27 @@ def import_package(client, args):
     if not os.path.isfile(args.file):
         debug_log("No file named " + args.file + " found!", True, True)
         sys.exit(1)
+
+    # Check for import prerequisites before anything else
+    prereqs = check_import_prerequisites_from_tar(args.file)
+    if prereqs.get("ldap_account_units"):
+        report = generate_prerequisites_report(prereqs)
+        print(report)
+        if not args.force:
+            print("Please verify that the above prerequisites are configured on the destination Management Server.")
+            print("1. Prerequisites are met - Continue with import")
+            print("2. Cancel import to resolve prerequisites")
+            choice = ""
+            chosen = False
+            while not chosen:
+                choice = input()
+                if choice not in ["1", "2"]:
+                    print("Please enter either '1' or '2'")
+                else:
+                    chosen = True
+            if choice == "2":
+                print("Import cancelled by user.")
+                sys.exit(0)
 
     timestamp = time.strftime("%Y_%m_%d_%H_%M")
 
