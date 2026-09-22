@@ -15,7 +15,7 @@ def check_import_prerequisites_from_tar(tar_file_path):
     import json
     import csv
 
-    prereqs = {"ldap_account_units": {}}
+    prereqs = {"ldap_account_units": {}, "gateway_clusters": []}
 
     try:
         with tarfile.open(tar_file_path, "r:*") as tf:
@@ -24,11 +24,28 @@ def check_import_prerequisites_from_tar(tar_file_path):
                 member = tf.getmember("import_prerequisites.json")
                 f = tf.extractfile(member)
                 if f:
-                    return json.load(f)
+                    loaded = json.load(f)
+                    # Backfill gateway_clusters if the file was generated with an older version
+                    if "gateway_clusters" not in loaded:
+                        loaded["gateway_clusters"] = []
+                        sc_members = [m for m in tf.getmembers() if "simple-cluster" in m.name and m.name.endswith(".json")]
+                        for sc_member in sc_members:
+                            sf = tf.extractfile(sc_member)
+                            if sf:
+                                try:
+                                    sc_data = json.load(sf)
+                                    sc_objs = sc_data if isinstance(sc_data, list) else list(sc_data.values())[0]
+                                    from utils import analyze_import_prerequisites
+                                    sc_prereqs = analyze_import_prerequisites({"simple-cluster": sc_objs})
+                                    loaded["gateway_clusters"] = sc_prereqs.get("gateway_clusters", [])
+                                except Exception:
+                                    pass
+                    return loaded
             except KeyError:
                 pass
 
-            # Fallback: dynamically scan access-role files inside the tar
+            # Fallback: dynamically scan access-role and simple-cluster files inside the tar
+            data_for_analysis = {}
             ar_members = [m for m in tf.getmembers() if "add-access-role" in m.name and m.name.endswith(".json")]
             for member in ar_members:
                 f = tf.extractfile(member)
@@ -36,10 +53,22 @@ def check_import_prerequisites_from_tar(tar_file_path):
                     try:
                         data = json.load(f)
                         roles = data if isinstance(data, list) else list(data.values())[0]
-                        from utils import analyze_import_prerequisites
-                        return analyze_import_prerequisites({"access-role": roles})
+                        data_for_analysis["access-role"] = roles
                     except Exception:
                         pass
+            sc_members = [m for m in tf.getmembers() if "simple-cluster" in m.name and m.name.endswith(".json")]
+            for sc_member in sc_members:
+                sf = tf.extractfile(sc_member)
+                if sf:
+                    try:
+                        sc_data = json.load(sf)
+                        sc_objs = sc_data if isinstance(sc_data, list) else list(sc_data.values())[0]
+                        data_for_analysis["simple-cluster"] = sc_objs
+                    except Exception:
+                        pass
+            if data_for_analysis:
+                from utils import analyze_import_prerequisites
+                return analyze_import_prerequisites(data_for_analysis)
     except Exception:
         pass
 
@@ -54,24 +83,47 @@ def import_package(client, args):
 
     # Check for import prerequisites before anything else
     prereqs = check_import_prerequisites_from_tar(args.file)
-    if prereqs.get("ldap_account_units"):
+    if prereqs.get("ldap_account_units") or prereqs.get("gateway_clusters"):
         report = generate_prerequisites_report(prereqs)
         print(report)
-        if not args.force:
-            print("Please verify that the above prerequisites are configured on the destination Management Server.")
-            print("1. Prerequisites are met - Continue with import")
-            print("2. Cancel import to resolve prerequisites")
-            choice = ""
-            chosen = False
-            while not chosen:
-                choice = input()
-                if choice not in ["1", "2"]:
-                    print("Please enter either '1' or '2'")
-                else:
-                    chosen = True
-            if choice == "2":
-                print("Import cancelled by user.")
-                sys.exit(0)
+
+    if prereqs.get("ldap_account_units") and not args.force:
+        print("Please verify that the above prerequisites are configured on the destination Management Server.")
+        print("1. Prerequisites are met - Continue with import")
+        print("2. Cancel import to resolve prerequisites")
+        choice = ""
+        chosen = False
+        while not chosen:
+            choice = input()
+            if choice not in ["1", "2"]:
+                print("Please enter either '1' or '2'")
+            else:
+                chosen = True
+        if choice == "2":
+            print("Import cancelled by user.")
+            sys.exit(0)
+
+    # Cluster fallback: ask how to handle clusters that cannot be imported via API
+    cluster_fallback = "dummy"  # default: create dummy host placeholders
+    if prereqs.get("gateway_clusters") and not args.force:
+        print("Gateway/Cluster objects listed above cannot be imported via the Management API.")
+        print("How should rules referencing these objects be handled?")
+        print("1. Create dummy host placeholders (import completes, recreate manually later in SmartConsole)")
+        print("2. Skip entirely (rules referencing these objects will fail to import)")
+        choice = ""
+        chosen = False
+        while not chosen:
+            choice = input()
+            if choice not in ["1", "2"]:
+                print("Please enter either '1' or '2'")
+            else:
+                chosen = True
+        cluster_fallback = "dummy" if choice == "1" else "skip"
+
+    # Store decision so import_objects can consult it
+    import importing.import_objects as _io
+    _io.cluster_fallback_mode = cluster_fallback
+    _io.unimportable_cluster_names = set(c["export_name"] for c in prereqs.get("gateway_clusters", []))
 
     timestamp = time.strftime("%Y_%m_%d_%H_%M")
 

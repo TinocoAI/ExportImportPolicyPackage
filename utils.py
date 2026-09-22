@@ -524,14 +524,18 @@ def analyze_import_prerequisites(data_dict):
     {
         "ldap_account_units": {
             "<source_name>": {
-                "groups": ["group1", "group2", ...],
+                "groups": ["group1", ...],
                 "users": ["user1", ...],
                 "used_in_roles": ["role1", ...]
             }
-        }
+        },
+        "gateway_clusters": [
+            {"name": "<real_name>", "export_name": "<partial_export_error_...>", "ip": "x.x.x.x", "members": [...]},
+            ...
+        ]
     }
     """
-    prereqs = {"ldap_account_units": {}}
+    prereqs = {"ldap_account_units": {}, "gateway_clusters": []}
 
     internal_sources = {"internal user groups", "internal_users", "guests", "all identified", "any"}
 
@@ -554,15 +558,11 @@ def analyze_import_prerequisites(data_dict):
                 au_entry = prereqs["ldap_account_units"][source]
                 if role_name not in au_entry["used_in_roles"]:
                     au_entry["used_in_roles"].append(role_name)
-
-                # Identify if this is a group or individual user
                 display_name = role.get("users." + str(i) + ".display-name", "")
                 name = role.get("users." + str(i) + ".name", "")
                 dn = role.get("users." + str(i) + ".dn", "")
                 identifier = display_name if display_name else name
-
                 if identifier:
-                    # Convention: names starting with ad_group_ or DN containing OU with groups
                     if name.startswith("ad_group_") or "OU=Groups" in dn or "OU=Security" in dn:
                         if identifier not in au_entry["groups"]:
                             au_entry["groups"].append(identifier)
@@ -571,13 +571,39 @@ def analyze_import_prerequisites(data_dict):
                             au_entry["users"].append(identifier)
             i += 1
 
+    simple_clusters = data_dict.get("simple-cluster", [])
+    for cluster in simple_clusters:
+        export_name = cluster.get("name", "")
+        if export_name.startswith("partial_export_error_simple-cluster_"):
+            parts = export_name.split("_")
+            real_name = "_".join(parts[5:]) if len(parts) > 5 else export_name
+            ip = cluster.get("ipv4-address", "")
+            members = []
+            idx = 0
+            while True:
+                mname_key = "members." + str(idx) + ".name"
+                mip_key = "members." + str(idx) + ".ip-address"
+                if mname_key not in cluster:
+                    break
+                raw_mname = cluster[mname_key]
+                mname_parts = raw_mname.split("_")
+                real_mname = "_".join(mname_parts[5:]) if raw_mname.startswith("export_error_cluster-member_") else raw_mname
+                members.append({"name": real_mname, "ip": cluster.get(mip_key, "")})
+                idx += 1
+            prereqs["gateway_clusters"].append({
+                "name": real_name,
+                "export_name": export_name,
+                "ip": ip,
+                "members": members
+            })
+
     return prereqs
 
 
 def generate_prerequisites_report(prereqs, out_file=None):
     """Format and print / write the import prerequisites report."""
     lines = []
-    has_prereqs = bool(prereqs.get("ldap_account_units"))
+    has_prereqs = bool(prereqs.get("ldap_account_units")) or bool(prereqs.get("gateway_clusters"))
 
     if not has_prereqs:
         return ""
@@ -598,6 +624,17 @@ def generate_prerequisites_report(prereqs, out_file=None):
             lines.append("    " + str(len(info["used_in_roles"])) + " Access Role(s) depend on this Account Unit "
                          "(" + str(len(info["groups"])) + " AD group(s), " + str(len(info["users"])) + " direct AD user(s))")
             lines.append("")
+
+    if prereqs.get("gateway_clusters"):
+        lines.append("--- Gateway / Cluster Objects (cannot be imported via API) ---")
+        lines.append("  The following cluster objects must be recreated manually in SmartConsole after import.")
+        lines.append("  Rules referencing these objects will need a placeholder or will be skipped (your choice on import).")
+        lines.append("")
+        for c in prereqs["gateway_clusters"]:
+            lines.append("  * " + c["name"] + " (" + c["ip"] + ")")
+            for m in c["members"]:
+                lines.append("      member: " + m["name"] + " (" + m["ip"] + ")")
+        lines.append("")
 
     lines.append("=" * 70)
     lines.append("")

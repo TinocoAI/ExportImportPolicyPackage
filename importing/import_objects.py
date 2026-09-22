@@ -18,6 +18,11 @@ should_create_imported_nat_top_section = True
 should_create_imported_nat_bottom_section = True
 updatable_objects_repository_initliazed = False
 imported_nat_top_section_uid = None
+
+# Cluster fallback: set by import_package before import starts.
+# "dummy" = create a dummy host placeholder; "skip" = do nothing (rules will fail).
+cluster_fallback_mode = "dummy"
+unimportable_cluster_names = set()  # export_name values of clusters that cannot be imported
 name_collision_map = {}
 changed_object_names_map = {}
 commands_batch_version = "1.6"
@@ -361,6 +366,31 @@ def add_object(line, counter, position_decrement_due_to_rule, position_decrement
 
     if "access-role" in api_type:
         clean_access_role_payload(payload)
+
+    # Handle clusters that cannot be imported via the Management API (cluster-xl parameter not supported).
+    # Apply the user-chosen fallback strategy before even attempting the API call.
+    if api_type == "simple-cluster" and payload.get("name") in unimportable_cluster_names:
+        real_name = payload["name"]
+        ip = payload.get("ipv4-address", "")
+        if cluster_fallback_mode == "dummy":
+            # Create a dummy host at the cluster IP so rules can still reference it.
+            dummy_name = "placeholder_cluster_" + real_name
+            if dummy_name not in missing_parameter_set:
+                missing_parameter_set.add(dummy_name)
+                dummy_payload = {"name": dummy_name, "ip-address": ip if ip else generate_new_dummy_ip_address(),
+                                 "comments": "Auto-created placeholder for cluster " + real_name +
+                                             ". Recreate the real cluster object in SmartConsole and replace this placeholder."}
+                dummy_reply = client.api_call("add-host", dummy_payload)
+                if dummy_reply.success:
+                    name_collision_map[real_name] = dummy_name
+                    debug_log("Created dummy host placeholder [" + dummy_name + "] for cluster [" + real_name + "]", True, True)
+                else:
+                    debug_log("Failed to create dummy host for cluster [" + real_name + "]: " +
+                              get_reply_err_msg(dummy_reply), True, True)
+        else:
+            debug_log("Skipping cluster [" + real_name + "] as requested (no placeholder created)", True, True)
+        counter += 1
+        return counter, position_decrement_due_to_rule
 
     if "exception-group" in api_type:
         name_to_check = payload["name"] if payload["name"] not in name_collision_map else name_collision_map[payload["name"]]
