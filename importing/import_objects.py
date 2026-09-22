@@ -286,6 +286,43 @@ def handle_import_tags(payload, api_type, client):
         payload["tags"] = tags_to_import
 
 
+def clean_access_role_payload(payload):
+    """Remap access-role payload to match the add-access-role API schema.
+
+    The show-access-role API returns users as rich objects containing fields
+    such as 'name', 'accountUnitUid', 'dn', 'display-name' and 'tooltiptext'
+    that the add-access-role API does not accept.  The API expects each user
+    entry to carry only 'source' (required) and 'selection' (required, the
+    AD/LDAP group name).  'remote-access-client' is similarly not accepted by
+    the API and is stripped so it defaults to Any.
+    """
+    if "remote-access-client" in payload:
+        payload.pop("remote-access-client")
+        debug_log("Not importing remote-access-client for access-role: "
+                  "field is not supported by the API. Defaulting to Any.", True, True)
+
+    if "users" in payload and isinstance(payload["users"], list):
+        clean_users = []
+        for user_entry in payload["users"]:
+            if not isinstance(user_entry, dict) or "source" not in user_entry:
+                clean_users.append(user_entry)
+                continue
+            clean_entry = {"source": user_entry["source"]}
+            # 'display-name' is the human-readable AD/LDAP group name, which
+            # maps to the 'selection' field required by the API.  Fall back to
+            # 'name' (the internal cpmiObjectName) when display-name is absent.
+            if "display-name" in user_entry and user_entry["display-name"]:
+                clean_entry["selection"] = user_entry["display-name"]
+            elif "name" in user_entry and user_entry["name"]:
+                clean_entry["selection"] = user_entry["name"]
+            clean_users.append(clean_entry)
+        if clean_users:
+            payload["users"] = clean_users
+        else:
+            payload.pop("users", None)
+        debug_log("Remapped access-role users list to API format (source + selection).", True, True)
+
+
 def add_object(line, counter, position_decrement_due_to_rule, position_decrement_due_to_section, fields, api_type,
                generic_type, layer, layers_to_attach,
                changed_layer_names, api_call, num_objects, client, args, package):
@@ -322,9 +359,7 @@ def add_object(line, counter, position_decrement_due_to_rule, position_decrement
             debug_log("Not importing scan-malicious-links, value is not supported. Setting with default value", True, True)
 
     if "access-role" in api_type:
-        if "remote-access-client" in payload:
-            payload.pop("remote-access-client")
-            debug_log("Not importing remote-access-client, value is not supported by the API. Setting with default value (Any)", True, True)
+        clean_access_role_payload(payload)
 
     if "exception-group" in api_type:
         name_to_check = payload["name"] if payload["name"] not in name_collision_map else name_collision_map[payload["name"]]
@@ -747,6 +782,9 @@ def update_payload_batch(client, payload, api_type, args, is_rule_type, changed_
 
     if "tags" in payload:
         handle_import_tags(payload, api_type, client)
+
+    if "access-role" in api_type:
+        clean_access_role_payload(payload)
 
     if args is not None and args.tag_objects_on_import != "":
         add_tag_to_object_payload(args.tag_objects_on_import, payload, api_type, client)
