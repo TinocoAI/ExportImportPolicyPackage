@@ -68,8 +68,9 @@ def import_objects(file_name, client, changed_layer_names, package, layer=None, 
     tar_files = export_tar.getmembers()
 
     general_object_files = [general_object_file for general_object_file in tar_files if
-                            os.path.splitext(general_object_file.name)[1] == ".csv" or
-                            os.path.splitext(general_object_file.name)[1] == ".json"]
+                            (os.path.splitext(general_object_file.name)[1] == ".csv" or
+                            os.path.splitext(general_object_file.name)[1] == ".json") and
+                            general_object_file.name not in ("import_prerequisites.json", "version.txt")]
 
     rulebase_object_files = [general_object_file for general_object_file in tar_files if
                              os.path.splitext(general_object_file.name)[1] == ".gz"]
