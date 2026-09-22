@@ -593,16 +593,10 @@ def generate_prerequisites_report(prereqs, out_file=None):
     if prereqs.get("ldap_account_units"):
         lines.append("--- LDAP Account Units Required ---")
         for au_name, info in prereqs["ldap_account_units"].items():
-            lines.append("  * LDAP Account Unit: [" + au_name + "]")
-            lines.append("    Used in " + str(len(info["used_in_roles"])) + " Access Role(s)")
-            if info["groups"]:
-                lines.append("    AD Groups (" + str(len(info["groups"])) + "):")
-                for g in sorted(info["groups"]):
-                    lines.append("      - " + g)
-            if info["users"]:
-                lines.append("    AD Users (" + str(len(info["users"])) + "):")
-                for u in sorted(info["users"]):
-                    lines.append("      - " + u)
+            total_members = len(info["groups"]) + len(info["users"])
+            lines.append("  * Create LDAP Account Unit [" + au_name + "] on the destination Management Server")
+            lines.append("    " + str(len(info["used_in_roles"])) + " Access Role(s) depend on this Account Unit "
+                         "(" + str(len(info["groups"])) + " AD group(s), " + str(len(info["users"])) + " direct AD user(s))")
             lines.append("")
 
     lines.append("=" * 70)
