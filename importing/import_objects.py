@@ -321,6 +321,11 @@ def add_object(line, counter, position_decrement_due_to_rule, position_decrement
             payload.pop("scan-malicious-links")
             debug_log("Not importing scan-malicious-links, value is not supported. Setting with default value", True, True)
 
+    if "access-role" in api_type:
+        if "remote-access-client" in payload:
+            payload.pop("remote-access-client")
+            debug_log("Not importing remote-access-client, value is not supported by the API. Setting with default value (Any)", True, True)
+
     if "exception-group" in api_type:
         name_to_check = payload["name"] if payload["name"] not in name_collision_map else name_collision_map[payload["name"]]
         if name_to_check not in imported_exception_groups:
