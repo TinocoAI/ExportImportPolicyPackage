@@ -9,7 +9,7 @@ from exporting.export_package import export_package
 from importing.import_package import import_package
 from utils import process_arguments, extract_sid_from_session_file, handle_login_fail, get_min_version, debug_log
 
-SCRIPT_VERSION = "6.3.8"
+SCRIPT_VERSION = "6.3.9"
 
 debug = None
 log_file = None
