@@ -297,10 +297,22 @@ def clean_access_role_payload(payload):
 
     The show-access-role API returns users as rich objects containing fields
     such as 'name', 'accountUnitUid', 'dn', 'display-name' and 'tooltiptext'
-    that the add-access-role API does not accept.  The API expects each user
-    entry to carry only 'source' (required) and 'selection' (required, the
-    AD/LDAP group name).  'remote-access-client' is similarly not accepted by
-    the API and is stripped so it defaults to Any.
+    that the add-access-role API does not accept.
+
+    The add-access-role API expects each user entry to carry:
+      - 'source' (required): the Account Unit name
+      - 'selection' (required): the AD group name OR the user's full DN
+
+    For AD groups the 'selection' is the group name (display-name).
+    For individual AD users the API requires the full DN — passing the
+    display name results in 'object not found' because the API searches
+    the directory by DN for individual users.
+
+    Detection: individual users have a 'dn' field starting with 'CN='
+    and whose internal 'name' starts with 'ad_user_' (set by the CP export).
+    AD groups have a 'name' starting with 'ad_group_'.
+
+    'remote-access-client' is not accepted by the API and is stripped.
     """
     if "remote-access-client" in payload:
         payload.pop("remote-access-client")
@@ -314,13 +326,21 @@ def clean_access_role_payload(payload):
                 clean_users.append(user_entry)
                 continue
             clean_entry = {"source": user_entry["source"]}
-            # 'display-name' is the human-readable AD/LDAP group name, which
-            # maps to the 'selection' field required by the API.  Fall back to
-            # 'name' (the internal cpmiObjectName) when display-name is absent.
-            if "display-name" in user_entry and user_entry["display-name"]:
-                clean_entry["selection"] = user_entry["display-name"]
-            elif "name" in user_entry and user_entry["name"]:
-                clean_entry["selection"] = user_entry["name"]
+            internal_name = user_entry.get("name", "")
+            dn = user_entry.get("dn", "")
+            display_name = user_entry.get("display-name", "")
+
+            if internal_name.startswith("ad_user_") and dn:
+                # Individual AD user — API requires the full DN as selection
+                clean_entry["selection"] = dn
+            elif internal_name.startswith("ad_group_") and display_name:
+                # AD group — API accepts the group display name as selection
+                clean_entry["selection"] = display_name
+            elif display_name:
+                clean_entry["selection"] = display_name
+            elif internal_name:
+                clean_entry["selection"] = internal_name
+
             clean_users.append(clean_entry)
         if clean_users:
             payload["users"] = clean_users
