@@ -681,10 +681,20 @@ def add_object(line, counter, position_decrement_due_to_rule, position_decrement
                                           layers_to_attach,
                                           changed_layer_names, api_call, num_objects, client, args, package)
         if "Invalid parameter for [position]" in reply_err_msg and "exception-group" not in api_type:
-            if "access-rule" in api_type or "https-rule" or "threat-exception" in api_type:
-                position_decrement_due_to_rule += adjust_position_decrement(int(payload["position"]), reply_err_msg)
+            if "access-rule" in api_type or "https-rule" in api_type or "threat-exception" in api_type:
+                new_decrement = adjust_position_decrement(int(payload["position"]), reply_err_msg)
+                if new_decrement == position_decrement_due_to_rule:
+                    debug_log("Position adjustment did not change for rule — skipping to avoid infinite recursion.", True, True)
+                    counter += 1
+                    return counter, position_decrement_due_to_rule
+                position_decrement_due_to_rule = new_decrement
             elif "access-section" in api_type or "https-section" in api_type:
-                position_decrement_due_to_section += adjust_position_decrement(int(payload["position"]), reply_err_msg)
+                new_decrement = adjust_position_decrement(int(payload["position"]), reply_err_msg)
+                if new_decrement == position_decrement_due_to_section:
+                    debug_log("Position adjustment did not change for section — skipping to avoid infinite recursion.", True, True)
+                    counter += 1
+                    return counter, position_decrement_due_to_rule
+                position_decrement_due_to_section = new_decrement
             return add_object(line, counter, position_decrement_due_to_rule, position_decrement_due_to_section, fields,
                               api_type, generic_type, layer,
                               layers_to_attach,
