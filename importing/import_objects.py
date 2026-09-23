@@ -330,14 +330,15 @@ def clean_access_role_payload(payload):
             dn = user_entry.get("dn", "")
             display_name = user_entry.get("display-name", "")
 
-            if internal_name.startswith("ad_user_") and dn:
-                # Individual AD user — API requires the full DN as selection
-                clean_entry["selection"] = dn
-            elif internal_name.startswith("ad_group_") and display_name:
+            if internal_name.startswith("ad_group_") and display_name:
                 # AD group — API accepts the group display name as selection
                 clean_entry["selection"] = display_name
             elif display_name:
+                # Individual AD user — try display-name first (more stable than DN
+                # when users are moved between OUs after policy creation)
                 clean_entry["selection"] = display_name
+            elif dn:
+                clean_entry["selection"] = dn
             elif internal_name:
                 clean_entry["selection"] = internal_name
 
