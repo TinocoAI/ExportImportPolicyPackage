@@ -9,6 +9,8 @@ from exporting.export_package import export_package
 from importing.import_package import import_package
 from utils import process_arguments, extract_sid_from_session_file, handle_login_fail, get_min_version, debug_log
 
+SCRIPT_VERSION = "6.3.8"
+
 debug = None
 log_file = None
 output_file = None
@@ -26,7 +28,8 @@ if __name__ == "__main__":
     if sys.version_info < (3, 7):
         raise Exception("Min Python version required is 3.7")
 
-    arg_parser = argparse.ArgumentParser(description="R80.X and above Policy Package Export/Import Tool, V6.3")
+    arg_parser = argparse.ArgumentParser(description="R80.X and above Policy Package Export/Import Tool, v" + SCRIPT_VERSION)
+    arg_parser.add_argument("--script-version", action="version", version="%(prog)s " + SCRIPT_VERSION)
     args = process_arguments(arg_parser)
     if args.force:
         args.unsafe_auto_accept = True
