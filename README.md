@@ -120,6 +120,7 @@ Use `-h` for the full list of flags and the current tool version.
 
 | Version | Description |
 |---------|-------------|
+| v6.3.8  | Fix individual AD users in Access Roles: API requires full DN as `selection`, not display-name; groups continue to use display-name |
 | v6.3.7  | Fix infinite recursion on `Invalid parameter for [position]` in access-sections; fix operator precedence bug for https-rule/threat-exception |
 | v6.3.6  | Cluster fallback strategy (dummy host or skip) for gateway/cluster objects that cannot be imported via API; dynamic cluster detection for older archives |
 | v6.3.5  | Exclude `import_prerequisites.json` from general object file list to prevent IndexError on import |
