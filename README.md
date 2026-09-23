@@ -126,6 +126,7 @@ python3 import_export_package.py --script-version
 
 | Version | Description |
 |---------|-------------|
+| v6.3.9  | Revert individual AD user selection to display-name (DN causes more failures when users were moved between OUs after policy creation) |
 | v6.3.8  | Fix individual AD users in Access Roles: API requires full DN as `selection`, not display-name; groups continue to use display-name |
 | v6.3.7  | Fix infinite recursion on `Invalid parameter for [position]` in access-sections; fix operator precedence bug for https-rule/threat-exception |
 | v6.3.6  | Cluster fallback strategy (dummy host or skip) for gateway/cluster objects that cannot be imported via API; dynamic cluster detection for older archives |
