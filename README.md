@@ -114,6 +114,12 @@ python3 import_export_package.py \
 
 Use `-h` for the full list of flags and the current tool version.
 
+To check the script version without connecting to a Management Server:
+
+```bash
+python3 import_export_package.py --script-version
+```
+
 ---
 
 ## Changelog
